@@ -249,7 +249,7 @@ describe("wecom_mcp tool", () => {
   it("passes requester userid header to MCP calls", async () => {
     const tool = createWeComMcpTool({
       accountId: "acct-a",
-      requesterUserId: "lirui",
+      requesterUserId: "alice",
     });
 
     setWsClient("acct-a", {
@@ -297,13 +297,13 @@ describe("wecom_mcp tool", () => {
     });
 
     assert.ok(fetchCalls.length >= 2);
-    assert.ok(fetchCalls.every((call) => call.headers["x-openclaw-wecom-userid"] === "lirui"));
+    assert.ok(fetchCalls.every((call) => call.headers["x-openclaw-wecom-userid"] === "alice"));
   });
 
   it("sends a doc auth biz message when MCP returns a document auth error", async () => {
     const tool = createWeComMcpTool({
       accountId: "default",
-      requesterUserId: "lirui",
+      requesterUserId: "alice",
       chatId: "WrMixedCaseChat",
       chatType: "group",
     });
@@ -365,7 +365,7 @@ describe("wecom_mcp tool", () => {
     assert.ok(bizMsgCall);
     assert.equal(bizMsgCall.body.biz_type, 1);
     assert.equal(bizMsgCall.body.chat_id, "WrMixedCaseChat");
-    assert.equal(bizMsgCall.body.userid, "lirui");
+    assert.equal(bizMsgCall.body.userid, "alice");
     assert.equal(bizMsgCall.body.chat_type, 2);
 
     const payload = JSON.parse(result.content[0].text);

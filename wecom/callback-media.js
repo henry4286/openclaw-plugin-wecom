@@ -12,6 +12,20 @@ import { getAccessToken } from "./agent-api.js";
 import { wecomFetch } from "./http.js";
 import { AGENT_API_ENDPOINTS, CALLBACK_MEDIA_DOWNLOAD_TIMEOUT_MS } from "./constants.js";
 
+export class CallbackMediaOversizeError extends Error {
+  constructor({ kind, filename, sizeBytes, maxBytes }) {
+    super(
+      `Callback media oversize: kind=${kind}, size=${sizeBytes}, max=${maxBytes}` +
+        (filename ? `, filename=${filename}` : ""),
+    );
+    this.name = "CallbackMediaOversizeError";
+    this.kind = kind;
+    this.filename = filename;
+    this.sizeBytes = sizeBytes;
+    this.maxBytes = maxBytes;
+  }
+}
+
 function resolveManagedCallbackMediaDir() {
   const override = process.env.OPENCLAW_STATE_DIR?.trim();
   const stateDir = override || path.join(process.env.HOME || "/tmp", ".openclaw");
@@ -61,6 +75,15 @@ export async function downloadCallbackMedia({ agent, mediaId, type, mediaRuntime
   const filename =
     filenameMatch?.[1]?.trim() ||
     (type === "image" ? `${mediaId}.jpg` : type === "voice" ? `${mediaId}.amr` : mediaId);
+
+  if (buffer.length > maxBytes) {
+    throw new CallbackMediaOversizeError({
+      kind: type,
+      filename,
+      sizeBytes: buffer.length,
+      maxBytes,
+    });
+  }
 
   // Save via core media runtime when available
   if (typeof mediaRuntime?.saveMediaBuffer === "function") {

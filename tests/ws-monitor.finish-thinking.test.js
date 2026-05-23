@@ -15,7 +15,7 @@ describe("finishThinkingStream", () => {
     };
     const frame = {
       body: {
-        from: { userid: "lirui" },
+        from: { userid: "alice" },
       },
     };
 
@@ -53,7 +53,7 @@ describe("finishThinkingStream", () => {
     };
     const frame = {
       body: {
-        from: { userid: "lirui" },
+        from: { userid: "alice" },
       },
     };
 
@@ -79,6 +79,44 @@ describe("finishThinkingStream", () => {
       frame,
       streamId: "stream-2",
       content: "<think>等待模型响应 31s</think>\n图片已生成，请查收。",
+      finish: true,
+      msgItem: undefined,
+    });
+  });
+
+  it("closes the stream silently when the model produced no visible/reasoning/media output", async () => {
+    const calls = [];
+    const wsClient = {
+      isConnected: true,
+      async replyStream(frame, streamId, content, finish, msgItem) {
+        calls.push({ frame, streamId, content, finish, msgItem });
+      },
+    };
+    const frame = {
+      body: {
+        from: { userid: "alice" },
+      },
+    };
+
+    await finishThinkingStream({
+      wsClient,
+      frame,
+      accountId: "default",
+      state: {
+        accumulatedText: "",
+        reasoningText: "",
+        streamId: "stream-3",
+        hasMedia: false,
+        hasMediaFailed: false,
+        mediaErrorSummary: "",
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], {
+      frame,
+      streamId: "stream-3",
+      content: "",
       finish: true,
       msgItem: undefined,
     });

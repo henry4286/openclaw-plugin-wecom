@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
-import { uploadAndSendMedia, buildMediaErrorSummary, buildStreamImageMsgItem } from "./media-uploader.js";
+import { uploadAndReplyMedia, buildMediaErrorSummary } from "./media-uploader.js";
 import { createPersistentReqIdStore } from "./reqid-store.js";
 import { agentSendMedia, agentSendText, agentUploadMedia } from "./agent-api.js";
 import { applyOutboundSenderProtocol, resolveOutboundSenderLabel } from "./outbound-sender-protocol.js";
@@ -79,7 +79,6 @@ const MAX_INTERMEDIATE_STREAM_MESSAGES = 85;
 // Keepalive updates every 4 minutes maintain visible progress but do NOT extend
 // the lifetime.  Stream rotation (see rotateStream) is the actual fix.
 const STREAM_KEEPALIVE_INTERVAL_MS = 4 * 60 * 1000;
-const STREAM_MSG_ITEM_MAX_IMAGES = 10;
 // Match MEDIA:/FILE: directives at line start, optionally preceded by markdown list markers.
 const REPLY_MEDIA_DIRECTIVE_PATTERN = /^\s*(?:[-*•]\s+|\d+\.\s+)?(?:MEDIA|FILE)\s*:/im;
 const WECOM_REPLY_MEDIA_GUIDANCE_HEADER = "[WeCom reply media rule]";
@@ -649,6 +648,62 @@ function isRemoteImageUrl(value) {
   }
 }
 
+function collectInlineRemoteImageUrls(content, mediaUrls = []) {
+  const urls = [];
+  const seen = new Set();
+
+  const add = (url, { requireImageExtension = true } = {}) => {
+    const normalized = normalizeVisibleRemoteUrl(url);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    if (requireImageExtension && !isRemoteImageUrl(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    urls.push(normalized);
+  };
+
+  for (const url of extractRemoteMarkdownImageUrls(content)) {
+    add(url, { requireImageExtension: false });
+  }
+  for (const url of mediaUrls) {
+    add(url);
+  }
+
+  return urls;
+}
+
+function buildPassiveMarkdownReplyText(content, mediaUrls = []) {
+  let text = String(content ?? "").trim();
+  const visibleUrls = extractVisibleRemoteUrls(text);
+  const missingImageLines = [];
+
+  for (const url of collectInlineRemoteImageUrls(text, mediaUrls)) {
+    if (visibleUrls.has(url)) {
+      continue;
+    }
+    visibleUrls.add(url);
+    missingImageLines.push(`![图片](${url})`);
+  }
+
+  if (missingImageLines.length === 0) {
+    return text;
+  }
+
+  return [text, ...missingImageLines]
+    .filter((part) => String(part ?? "").trim())
+    .join("\n\n");
+}
+
+function shouldUsePassiveMarkdownReply(content, mediaUrls = []) {
+  return collectInlineRemoteImageUrls(content, mediaUrls).length > 0;
+}
+
+function isInlineRemoteReplyImage(mediaUrl) {
+  return isRemoteImageUrl(normalizeVisibleRemoteUrl(mediaUrl));
+}
+
 function escapeMarkdownAltText(value) {
   return String(value ?? "图片")
     .replace(/[\r\n\t]+/g, " ")
@@ -758,16 +813,36 @@ function splitReplyMediaFromText(text) {
 }
 
 function normalizeReplyPayload(payload) {
-  const explicitMediaUrls = Array.isArray(payload?.mediaUrls)
+  const payloadMediaUrls = Array.isArray(payload?.mediaUrls)
     ? payload.mediaUrls.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
     : [];
-  const explicitMediaUrl = typeof payload?.mediaUrl === "string" && payload.mediaUrl.trim()
+  const payloadMediaUrl = typeof payload?.mediaUrl === "string" && payload.mediaUrl.trim()
     ? [payload.mediaUrl.trim()]
     : [];
   const parsed = splitReplyMediaFromText(payload?.text);
   const normalizedText = normalizePlainRemoteImageUrlsInReply(parsed.text);
   const visibleRemoteUrls = extractVisibleRemoteUrls(normalizedText);
-  const mediaUrls = mergeReplyMediaUrls(explicitMediaUrls, explicitMediaUrl, parsed.mediaUrls)
+
+  const shouldKeepPayloadMediaUrl = (mediaUrl) => {
+    if (!isRemoteHttpUrl(mediaUrl)) {
+      return true;
+    }
+    const normalizedUrl = normalizeVisibleRemoteUrl(mediaUrl);
+    return isRemoteImageUrl(normalizedUrl) || !normalizedUrl;
+  };
+
+  const shouldKeepDirectiveMediaUrl = (mediaUrl) => {
+    if (!isRemoteHttpUrl(mediaUrl)) {
+      return true;
+    }
+    const normalizedUrl = normalizeVisibleRemoteUrl(mediaUrl);
+    return isRemoteImageUrl(normalizedUrl) || !normalizedUrl || !visibleRemoteUrls.has(normalizedUrl);
+  };
+
+  const mediaUrls = mergeReplyMediaUrls(
+    mergeReplyMediaUrls(payloadMediaUrls, payloadMediaUrl).filter(shouldKeepPayloadMediaUrl),
+    parsed.mediaUrls.filter(shouldKeepDirectiveMediaUrl),
+  )
     .filter((mediaUrl) => {
       if (!isRemoteHttpUrl(mediaUrl)) {
         return true;
@@ -797,11 +872,13 @@ function stripThinkTags(text) {
 }
 
 async function sendMediaBatch({ wsClient, frame, state, account, runtime, config, agentId }) {
-  const body = frame?.body ?? {};
-  const chatId = body.chatid || body.from?.userid;
   const mediaLocalRoots = resolveReplyMediaLocalRoots(config, agentId);
 
   for (const mediaUrl of state.pendingMediaUrls) {
+    if (isInlineRemoteReplyImage(mediaUrl)) {
+      continue;
+    }
+
     const normalizedUrl = normalizeReplyMediaUrlForLoad(mediaUrl, config, agentId);
     if (!normalizedUrl) {
       state.hasMediaFailed = true;
@@ -817,26 +894,10 @@ async function sendMediaBatch({ wsClient, frame, state, account, runtime, config
       continue;
     }
 
-    if ((state.streamMsgItems?.length ?? 0) < STREAM_MSG_ITEM_MAX_IMAGES) {
-      const streamImage = await buildStreamImageMsgItem({
-        mediaUrl: normalizedUrl,
-        mediaLocalRoots,
-        includeDefaultMediaLocalRoots: false,
-      });
-      if (streamImage.ok) {
-        state.streamMsgItems.push(streamImage.msgItem);
-        state.attachedReplyMediaUrls.push(mediaUrl);
-        state.hasMedia = true;
-        state.hasImageMedia = true;
-        logger.info(`[WS] Media attached via stream msg_item: url=${mediaUrl}, type=${streamImage.contentType}`);
-        continue;
-      }
-    }
-
-    const result = await uploadAndSendMedia({
+    const result = await uploadAndReplyMedia({
       wsClient,
+      frame,
       mediaUrl: normalizedUrl,
-      chatId,
       mediaLocalRoots,
       includeDefaultMediaLocalRoots: false,
       log: (...args) => logger.info(...args),
@@ -912,6 +973,7 @@ async function flushQueuedReplyMedia({ wsClient, frame, state, account, runtime,
 async function finishThinkingStream({ wsClient, frame, state, accountId }) {
   const visibleText = stripThinkTags(state.accumulatedText);
   let finishText;
+  let allowEmpty = false;
 
   if (visibleText) {
     let finalVisibleText = state.accumulatedText;
@@ -948,7 +1010,11 @@ async function finishThinkingStream({ wsClient, frame, state, accountId }) {
   } else if (state.hasMediaFailed && state.mediaErrorSummary) {
     finishText = state.mediaErrorSummary;
   } else {
-    finishText = "处理完成。";
+    // Model produced nothing visible/reasoning/media. Close the stream
+    // silently so the WeCom client clears its "⏳ 处理中…" placeholder
+    // without leaving a generic stub message in the conversation.
+    finishText = "";
+    allowEmpty = true;
   }
 
   await sendWsReply({
@@ -957,8 +1023,8 @@ async function finishThinkingStream({ wsClient, frame, state, accountId }) {
     streamId: state.streamId,
     text: finishText,
     finish: true,
-    msgItem: state.streamMsgItems?.length ? state.streamMsgItems : undefined,
     accountId,
+    allowEmpty,
   });
 }
 
@@ -1123,6 +1189,20 @@ function delayMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+class MediaOversizeError extends Error {
+  constructor({ kind, filename, sizeBytes, maxBytes }) {
+    super(
+      `Media oversize: kind=${kind}, size=${sizeBytes}, max=${maxBytes}` +
+        (filename ? `, filename=${filename}` : ""),
+    );
+    this.name = "MediaOversizeError";
+    this.kind = kind;
+    this.filename = filename;
+    this.sizeBytes = sizeBytes;
+    this.maxBytes = maxBytes;
+  }
+}
+
 async function downloadWeComMediaWithRetry({ wsClient, url, aesKey, type, timeoutMs }) {
   const maxAttempts = 3;
   let lastError;
@@ -1184,20 +1264,42 @@ async function downloadAndSaveMedia({ wsClient, urls, aesKeys, type, runtime, co
         contentType = fetched.contentType ?? contentType;
       }
 
+      if (buffer.length > maxBytes) {
+        throw new MediaOversizeError({
+          kind: type,
+          filename,
+          sizeBytes: buffer.length,
+          maxBytes,
+        });
+      }
+
       const saved = await core.media.saveMediaBuffer(buffer, contentType, "inbound", maxBytes, filename);
       mediaList.push({ path: saved.path, contentType: saved.contentType });
     } catch (error) {
-      logger.error(`[WS] Failed to download ${type}: ${error.message}`);
-      failures.push({ url, type, error: error?.message || String(error) });
+      if (error instanceof MediaOversizeError) {
+        logger.warn(`[WS] ${type} oversize: size=${error.sizeBytes}, max=${error.maxBytes}, filename=${error.filename ?? "(none)"}`);
+        failures.push({
+          url,
+          type,
+          error: error.message,
+          oversize: true,
+          sizeBytes: error.sizeBytes,
+          maxBytes: error.maxBytes,
+          filename: error.filename,
+        });
+      } else {
+        logger.error(`[WS] Failed to download ${type}: ${error.message}`);
+        failures.push({ url, type, error: error?.message || String(error) });
+      }
     }
   }
 
   return { mediaList, failures };
 }
 
-async function sendWsReply({ wsClient, frame, text, finish = true, streamId, msgItem, accountId }) {
+async function sendWsReply({ wsClient, frame, text, finish = true, streamId, msgItem, accountId, allowEmpty = false }) {
   const normalizedText = normalizeThinkingTags(typeof text === "string" ? text : "");
-  if (!normalizedText && (!Array.isArray(msgItem) || msgItem.length === 0)) {
+  if (!allowEmpty && !normalizedText && (!Array.isArray(msgItem) || msgItem.length === 0)) {
     return streamId;
   }
   if (!wsClient?.isConnected) {
@@ -1230,6 +1332,47 @@ async function sendWsReply({ wsClient, frame, text, finish = true, streamId, msg
   }
 
   return resolvedStreamId;
+}
+
+async function sendWsPassiveMarkdownReply({ wsClient, frame, text, accountId }) {
+  const content = stripThinkTags(text).trim();
+  if (!content) {
+    return null;
+  }
+  if (!wsClient?.isConnected) {
+    throw new Error("WS client is not connected");
+  }
+  if (typeof wsClient.reply !== "function") {
+    throw new Error("WS client does not support passive markdown replies");
+  }
+
+  const chatId = frame?.body?.chatid || frame?.body?.from?.userid;
+  if (accountId && chatId) {
+    const quota = forecastReplyQuota({ accountId, chatId });
+    if (quota.windowActive && (quota.nearLimit || quota.exhausted)) {
+      logger.warn(`[WS:${accountId}] Reply quota is ${quota.exhausted ? "exhausted" : "near limit"}`, {
+        chatId,
+        used: quota.used,
+        limit: quota.limit,
+        remaining: quota.remaining,
+      });
+    }
+  }
+
+  const result = await withTimeout(
+    wsClient.reply(frame, {
+      msgtype: "markdown",
+      markdown: { content },
+    }),
+    REPLY_SEND_TIMEOUT_MS,
+    "Passive markdown reply timed out",
+  );
+
+  if (accountId && chatId) {
+    recordPassiveReply({ accountId, chatId });
+  }
+
+  return result;
 }
 
 function resolveOutboundChatId(to) {
@@ -1681,12 +1824,19 @@ async function processWsMessage({
   });
 
   if (mediaDownloadFailures.length > 0) {
-    const failedTypes = [...new Set(mediaDownloadFailures.map((entry) => entry.type === "image" ? "图片" : "文件"))];
-    const firstError = mediaDownloadFailures[0]?.error ? `\n错误详情：${mediaDownloadFailures[0].error}` : "";
-    const failureText = [
-      `${failedTypes.join("、")}下载失败，暂时无法处理附件内容。`,
-      `企业微信接口可能临时返回 503/超时，请稍后重发附件再试。${firstError}`,
-    ].join("\n");
+    const oversize = mediaDownloadFailures.find((entry) => entry.oversize);
+    let failureText;
+    if (oversize) {
+      const maxMb = oversize.maxBytes / 1024 / 1024;
+      failureText = `当前 OpenClaw 限制附件不超过 ${maxMb}MB，请减小附件再重发，或调整 agents.defaults.mediaMaxMb 后重启 Gateway。`;
+    } else {
+      const failedTypes = [...new Set(mediaDownloadFailures.map((entry) => entry.type === "image" ? "图片" : "文件"))];
+      const firstError = mediaDownloadFailures[0]?.error ? `\n错误详情：${mediaDownloadFailures[0].error}` : "";
+      failureText = [
+        `${failedTypes.join("、")}下载失败，暂时无法处理附件内容。`,
+        `企业微信接口可能临时返回 503/超时，请稍后重发附件再试。${firstError}`,
+      ].join("\n");
+    }
     logger.warn(`[WS:${account.accountId}] Inbound media download failed; replying without dispatch`, {
       chatId,
       senderId,
@@ -1695,7 +1845,7 @@ async function processWsMessage({
     await sendWsReply({
       wsClient,
       frame,
-      streamId: generateReqId("media-download-failed"),
+      streamId: generateReqId(oversize ? "media-oversize" : "media-download-failed"),
       text: failureText,
       finish: true,
       accountId: account.accountId,
@@ -1712,7 +1862,6 @@ async function processWsMessage({
     streamCreatedAt: Date.now(),
     replyMediaUrls: [],
     pendingMediaUrls: [],
-    streamMsgItems: [],
     attachedReplyMediaUrls: [],
     hasMedia: false,
     hasImageMedia: false,
@@ -1721,6 +1870,7 @@ async function processWsMessage({
     mediaErrorSummary: "",
     deliverCalled: false,
     waitingModelSeconds: 0,
+    forcePassiveMarkdown: false,
   };
   setMessageState(messageId, state);
 
@@ -2233,6 +2383,16 @@ async function processWsMessage({
                   }
                 }
 
+                const passiveMarkdownCandidate = buildPassiveMarkdownReplyText(
+                  state.accumulatedText,
+                  state.replyMediaUrls,
+                );
+                if (shouldUsePassiveMarkdownReply(passiveMarkdownCandidate, state.replyMediaUrls)) {
+                  state.forcePassiveMarkdown = true;
+                  cancelPendingTimers();
+                  return;
+                }
+
                 if (!perfState.firstVisibleReceivedAt && chunk?.trim()) {
                   perfState.firstVisibleReceivedAt = Date.now();
                   logPerf("first_visible_received", {
@@ -2265,30 +2425,88 @@ async function processWsMessage({
         },
       );
 
+      const hasStartedStream = () => streamMessagesSent > 0 || Boolean(perfState.thinkingSentAt);
+      const passiveMarkdownCandidate = buildPassiveMarkdownReplyText(
+        state.accumulatedText,
+        state.replyMediaUrls,
+      );
+      const usePassiveMarkdown = state.forcePassiveMarkdown || shouldUsePassiveMarkdownReply(
+        passiveMarkdownCandidate,
+        state.replyMediaUrls,
+      );
+
       // Flush the latest throttled snapshot before finish=true so reasoning
-      // and visible deltas are not collapsed away by the final frame.
-      await flushPendingStreamUpdates();
+      // and visible deltas are not collapsed away by the final frame. When an
+      // inline-image markdown reply has not started streaming yet, keep it
+      // atomic and send only the markdown reply below.
+      if (!usePassiveMarkdown) {
+        await flushPendingStreamUpdates();
+      }
 
       // Cancel pending throttled timers before the final reply to prevent
       // non-final updates from being sent after finish=true.
       cancelPendingTimers();
 
       try {
-        await flushQueuedReplyMedia({
-          wsClient, frame, state, account, runtime, config,
-          agentId: route.agentId,
-        });
-        await finishThinkingStream({
-          wsClient,
-          frame,
-          state,
-          accountId: account.accountId,
-        });
+        if (usePassiveMarkdown) {
+          await flushQueuedReplyMedia({
+            wsClient, frame, state, account, runtime, config,
+            agentId: route.agentId,
+          });
+
+          if (hasStartedStream()) {
+            const originalText = state.accumulatedText;
+            const originalReasoningText = state.reasoningText;
+            const hasForwardedVisibleText = Boolean(stripThinkTags(lastForwardedVisibleText).trim());
+
+            if (hasForwardedVisibleText) {
+              state.accumulatedText = "图文内容已生成，请查看下一条消息。";
+            } else {
+              state.accumulatedText = "";
+              state.reasoningText = state.reasoningText
+                || buildWaitingModelReasoningText(state.waitingModelSeconds || waitingModelSeconds);
+            }
+            await finishThinkingStream({
+              wsClient,
+              frame,
+              state,
+              accountId: account.accountId,
+            });
+            state.accumulatedText = originalText;
+            state.reasoningText = originalReasoningText;
+          }
+
+          let passiveMarkdownText = buildPassiveMarkdownReplyText(
+            state.accumulatedText,
+            state.replyMediaUrls,
+          );
+          if (state.hasMediaFailed && state.mediaErrorSummary) {
+            passiveMarkdownText = `${passiveMarkdownText}\n\n${state.mediaErrorSummary}`.trim();
+          }
+          await sendWsPassiveMarkdownReply({
+            wsClient,
+            frame,
+            text: passiveMarkdownText,
+            accountId: account.accountId,
+          });
+        } else {
+          await flushQueuedReplyMedia({
+            wsClient, frame, state, account, runtime, config,
+            agentId: route.agentId,
+          });
+          await finishThinkingStream({
+            wsClient,
+            frame,
+            state,
+            accountId: account.accountId,
+          });
+        }
         perfState.finalReplySentAt = Date.now();
         logPerf("final_reply_sent", {
           textLength: state.accumulatedText.length,
           hasMedia: state.hasMedia,
           hasMediaFailed: state.hasMediaFailed,
+          deliveryMode: usePassiveMarkdown ? "passive_markdown" : "stream",
         });
         if (
           account.sendThinkingMessage !== false &&
@@ -2330,7 +2548,8 @@ async function processWsMessage({
         error: error.message,
       });
       try {
-        // Ensure the user sees an error message, not "处理完成。"
+        // Surface the error to the user; otherwise finishThinkingStream
+        // would close the stream silently with no visible content.
         if (!stripThinkTags(state.accumulatedText) && !state.hasMedia) {
           state.accumulatedText = `⚠️ 处理出错：${error.message}`;
         }

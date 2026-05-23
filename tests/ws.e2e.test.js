@@ -22,6 +22,7 @@ class FakeWsClient extends EventEmitter {
     this.connectCalls = 0;
     this.disconnectCalls = 0;
     this.replyStreamCalls = [];
+    this.replyCalls = [];
     this.replyWelcomeCalls = [];
     this.sendMessageCalls = [];
     this.downloadFileCalls = [];
@@ -53,6 +54,11 @@ class FakeWsClient extends EventEmitter {
     return { headers: { req_id: `reply-${streamId}` } };
   }
 
+  async reply(frame, body) {
+    this.replyCalls.push({ frame, body });
+    return { headers: { req_id: `reply-body-${this.replyCalls.length}` } };
+  }
+
   async replyWelcome(frame, body) {
     this.replyWelcomeCalls.push({ frame, body });
     return { headers: { req_id: "welcome-reply" } };
@@ -61,6 +67,12 @@ class FakeWsClient extends EventEmitter {
   async sendMessage(chatId, body) {
     this.sendMessageCalls.push({ chatId, body });
     return { headers: { req_id: `send-${chatId}` } };
+  }
+
+  async replyMedia(frame, type, mediaId) {
+    const reqId = `reply-media-${this.sendMediaMessageCalls.length}`;
+    this.sendMediaMessageCalls.push({ frame, type, mediaId, passive: true });
+    return { headers: { req_id: reqId } };
   }
 
   async uploadMedia(buffer, options = {}) {
@@ -258,7 +270,7 @@ function createMessageFrame(bodyOverrides = {}) {
     msgid: `msg-${randomUUID()}`,
     aibotid: "bot-123",
     chattype: "single",
-    from: { userid: "lirui" },
+    from: { userid: "alice" },
     msgtype,
   };
 
@@ -283,7 +295,7 @@ function createEventFrame(eventtype, overrides = {}) {
       create_time: Math.floor(Date.now() / 1000),
       aibotid: "bot-123",
       chattype: "single",
-      from: { userid: "lirui" },
+      from: { userid: "alice" },
       msgtype: "event",
       event: { eventtype },
       ...overrides,
@@ -528,8 +540,8 @@ describe("WS e2e", () => {
         "message",
         createMessageFrame({
           chattype: "group",
-          chatid: "wrqUsLDAAAj02j6hsqmKsPSKnNLUZP3A",
-          from: { userid: "guoyonghang" },
+          chatid: "wm_group_test_aaaaaaaaaa0000000000",
+          from: { userid: "bob" },
           msgtype: "text",
           text: { content },
         }),
@@ -563,7 +575,7 @@ describe("WS e2e", () => {
         createMessageFrame({
           chattype: "group",
           chatid: "wr-group-empty-mention",
-          from: { userid: "guoyonghang" },
+          from: { userid: "bob" },
           msgtype: "text",
           text: { content: "@bot" },
         }),
@@ -662,13 +674,14 @@ describe("WS e2e", () => {
       const finals = await eventually(() => {
         const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
         assert.ok(finals.length >= 1);
-        assert.ok(finals[0].msgItem?.length >= 1);
         return finals;
       });
       assert.equal(harness.runtime.ctxs[0].RawBody, "> 引用内容\n\n第一段\n第二段");
-      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
-      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
+      await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
+      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "image");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
+      assert.equal(finals[0].msgItem, undefined);
     } finally {
       await harness.stop();
     }
@@ -712,7 +725,7 @@ describe("WS e2e", () => {
     }
   });
 
-  it("parses MEDIA image lines from passive reply text into stream msg_item", async () => {
+  it("parses MEDIA image lines from passive reply text into replyMedia", async () => {
     const workspaceDir = path.join(tempDir, "workspace");
     const replyImagePath = path.join(workspaceDir, "reply.png");
     await mkdir(path.dirname(replyImagePath), { recursive: true });
@@ -736,19 +749,14 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
-      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
-      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
+      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
       assert.ok(finals.length >= 1);
       assert.ok(finals[0].content.includes("截图如下"));
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
-      assert.match(finals[0].msgItem[0].image.base64, /^[A-Za-z0-9+/]+=*$/);
-      assert.match(finals[0].msgItem[0].image.md5, /^[a-f0-9]{32}$/);
+      assert.equal(finals[0].msgItem, undefined);
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "image");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
     } finally {
       await harness.stop();
     }
@@ -778,18 +786,15 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
-      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
-      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
+      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
       assert.ok(finals.length >= 1);
       assert.ok(finals[0].content.includes("图片已生成，请查收。"));
       assert.ok(finals[0].content.includes("<think>"));
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
+      assert.equal(finals[0].msgItem, undefined);
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "image");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
     } finally {
       await harness.stop();
     }
@@ -822,10 +827,11 @@ describe("WS e2e", () => {
         }),
       );
 
-      // Files now uploaded via WS uploadMedia + sendMediaMessage
+      // Files now upload via WS uploadMedia + replyMedia.
       await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
       await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
-      assert.equal(harness.wsClient.sendMediaMessageCalls[0].chatId, "lirui");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "file");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
 
       // finishThinkingStream closes with text
       const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
@@ -1004,7 +1010,7 @@ describe("WS e2e", () => {
     }
   });
 
-  it("attaches passive reply images via stream msg_item", async () => {
+  it("replies passive local images via uploadMedia + replyMedia", async () => {
     const workspaceDir = path.join(tempDir, "workspace");
     const replyImagePath = path.join(workspaceDir, "final.png");
     await mkdir(workspaceDir, { recursive: true });
@@ -1029,23 +1035,20 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
-      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
-      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
+      assert.equal(harness.wsClient.uploadMediaCalls.length, 1);
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "image");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
       assert.ok(finals.length >= 1);
       assert.ok(finals[0].content.includes("截图如下"));
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
+      assert.equal(finals[0].msgItem, undefined);
     } finally {
       await harness.stop();
     }
   });
 
-  it("attaches passive remote markdown images via msg_item and strips markdown image syntax", async () => {
+  it("uses passive markdown for remote markdown images", async () => {
     const imageServer = await createImageServer();
     const imageUrl = imageServer.url;
     const text = `步骤如下\n\n![设置界面](${imageUrl})`;
@@ -1065,18 +1068,123 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
       assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
       assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
-      assert.ok(finals[0].content.includes("步骤如下"));
-      assert.ok(!finals[0].content.includes(`![设置界面](${imageUrl})`));
-      assert.ok(!finals[0].content.includes(imageUrl));
+      assert.equal(harness.wsClient.replyStreamCalls.length, 0);
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: text },
+      });
+    } finally {
+      await imageServer.close();
+      await harness.stop();
+    }
+  });
+
+  it("closes thinking-only streams without visible placeholder before passive markdown", async () => {
+    const imageServer = await createImageServer();
+    const imageUrl = imageServer.url;
+    const text = `步骤如下\n\n![设置界面](${imageUrl})`;
+    const harness = await startHarness({
+      configOverrides: { sendThinkingMessage: true },
+      replyPayloadFactory: () => ({
+        text,
+        mediaUrls: [imageUrl],
+      }),
+    });
+
+    try {
+      harness.wsClient.emit(
+        "message",
+        createMessageFrame({
+          msgtype: "text",
+          text: { content: "AE330如何恢复出厂设置" },
+        }),
+      );
+
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
+      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
+      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      assert.equal(harness.wsClient.replyStreamCalls.length, 2);
+      assert.equal(harness.wsClient.replyStreamCalls[0].finish, false);
+
+      const finalStream = harness.wsClient.replyStreamCalls[1];
+      assert.equal(finalStream.finish, true);
+      assert.ok(finalStream.content.includes("<think>等待模型响应"));
+      assert.ok(!finalStream.content.includes("图文内容已生成"));
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: text },
+      });
+    } finally {
+      await imageServer.close();
+      await harness.stop();
+    }
+  });
+
+  it("uses passive markdown for signed remote markdown images without file extensions", async () => {
+    const imageServer = await createImageServer();
+    const imageUrl = imageServer.url.replace("/guide.png", "/signed-image?token=abc");
+    const text = `步骤如下\n\n![设置界面](${imageUrl})`;
+    const harness = await startHarness({
+      replyPayloadFactory: () => ({ text }),
+    });
+
+    try {
+      harness.wsClient.emit(
+        "message",
+        createMessageFrame({
+          msgtype: "text",
+          text: { content: "展示签名图片" },
+        }),
+      );
+
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
+      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
+      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      assert.equal(harness.wsClient.replyStreamCalls.length, 0);
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: text },
+      });
+    } finally {
+      await imageServer.close();
+      await harness.stop();
+    }
+  });
+
+  it("does not upload remote non-image payload media when using passive markdown images", async () => {
+    const imageServer = await createImageServer();
+    const imageUrl = imageServer.url;
+    const docUrl = "https://example.invalid/guide.docx";
+    const text = "步骤如下\n\n### 图片参考";
+    const harness = await startHarness({
+      replyPayloadFactory: () => ({
+        text,
+        mediaUrls: [imageUrl, docUrl],
+      }),
+    });
+
+    try {
+      harness.wsClient.emit(
+        "message",
+        createMessageFrame({
+          msgtype: "text",
+          text: { content: "AE330如何恢复出厂设置" },
+        }),
+      );
+
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
+      assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
+      assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
+      assert.equal(harness.wsClient.replyStreamCalls.length, 0);
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: `${text}\n\n![图片](${imageUrl})` },
+      });
+      assert.ok(!harness.wsClient.replyCalls[0].body.markdown.content.includes("文件发送失败"));
+      assert.ok(!harness.wsClient.replyCalls[0].body.markdown.content.includes(docUrl));
     } finally {
       await imageServer.close();
       await harness.stop();
@@ -1103,25 +1211,21 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
       assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
       assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
-      assert.ok(finals[0].content.includes("步骤如下"));
-      assert.ok(!finals[0].content.includes(`![](${imageUrl})`));
-      assert.ok(!finals[0].content.includes(imageUrl));
+      assert.equal(harness.wsClient.replyStreamCalls.length, 0);
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: text },
+      });
     } finally {
       await imageServer.close();
       await harness.stop();
     }
   });
 
-  it("rewrites passive standalone remote image URLs and sends them via msg_item fallback", async () => {
+  it("rewrites passive standalone remote image URLs and sends passive markdown", async () => {
     const imageServer = await createImageServer();
     const imageUrl = imageServer.url;
     const text = `图片参考：\n${imageUrl}`;
@@ -1141,25 +1245,21 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.ok(calls[0].msgItem?.length >= 1);
-        return calls;
-      });
+      await eventually(() => assert.equal(harness.wsClient.replyCalls.length, 1));
       assert.equal(harness.wsClient.uploadMediaCalls.length, 0);
       assert.equal(harness.wsClient.sendMediaMessageCalls.length, 0);
-      assert.equal(finals[0].msgItem[0].msgtype, "image");
-      assert.ok(finals[0].content.includes("图片参考："));
-      assert.ok(!finals[0].content.includes(`![图片](${imageUrl})`));
-      assert.ok(!finals[0].content.includes(imageUrl));
+      assert.equal(harness.wsClient.replyStreamCalls.length, 0);
+      assert.deepEqual(harness.wsClient.replyCalls[0].body, {
+        msgtype: "markdown",
+        markdown: { content: `图片参考：\n![图片](${imageUrl})` },
+      });
     } finally {
       await imageServer.close();
       await harness.stop();
     }
   });
 
-  it("falls back to sendMediaMessage for passive reply images beyond the msg_item limit", async () => {
+  it("uploads all passive reply images via replyMedia", async () => {
     const workspaceDir = path.join(tempDir, "workspace");
     await mkdir(workspaceDir, { recursive: true });
     const imageBuffer = Buffer.from(
@@ -1189,21 +1289,18 @@ describe("WS e2e", () => {
         }),
       );
 
-      const finals = await eventually(() => {
-        const calls = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
-        assert.ok(calls.length >= 1);
-        assert.equal(calls[0].msgItem?.length, 10);
-        return calls;
-      });
-      await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
-      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 11));
+      await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 11));
+      const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
+      assert.ok(finals.length >= 1);
       assert.ok(finals[0].content.includes("多张图片如下"));
+      assert.equal(harness.wsClient.sendMediaMessageCalls.every((call) => call.passive), true);
     } finally {
       await harness.stop();
     }
   });
 
-  it("uploads passive reply files via WS uploadMedia + sendMediaMessage", async () => {
+  it("uploads passive reply files via WS uploadMedia + replyMedia", async () => {
     const workspaceDir = path.join(tempDir, "workspace");
     const replyPdfPath = path.join(workspaceDir, "report.pdf");
     await mkdir(workspaceDir, { recursive: true });
@@ -1227,7 +1324,8 @@ describe("WS e2e", () => {
 
       await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
       await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
-      assert.equal(harness.wsClient.sendMediaMessageCalls[0].chatId, "lirui");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].type, "file");
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
 
       const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
       assert.ok(finals.length >= 1);
@@ -1261,6 +1359,7 @@ describe("WS e2e", () => {
 
       await eventually(() => assert.equal(harness.wsClient.uploadMediaCalls.length, 1));
       await eventually(() => assert.equal(harness.wsClient.sendMediaMessageCalls.length, 1));
+      assert.equal(harness.wsClient.sendMediaMessageCalls[0].passive, true);
 
       const finals = harness.wsClient.replyStreamCalls.filter((c) => c.finish);
       assert.ok(finals.length >= 1);
@@ -1704,14 +1803,14 @@ describe("WS e2e", () => {
 
     const result = await wecomChannelPlugin.outbound.sendText({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text: "主动消息",
       accountId: "default",
     });
 
-    assert.equal(result.chatId, "lirui");
+    assert.equal(result.chatId, "alice");
     assert.equal(wsClient.sendMessageCalls.length, 1);
-    assert.equal(wsClient.sendMessageCalls[0].chatId, "lirui");
+    assert.equal(wsClient.sendMessageCalls[0].chatId, "alice");
     assert.deepEqual(wsClient.sendMessageCalls[0].body, {
       msgtype: "markdown",
       markdown: { content: "主动消息" },
@@ -1729,14 +1828,14 @@ describe("WS e2e", () => {
     await wecomChannelPlugin.outbound.sendText({
       cfg,
       to: "wecom:weiyuandong",
-      text: "[[sender:lirui]]\n你好",
+      text: "[[sender:alice]]\n你好",
       accountId: "default",
     });
 
     assert.equal(wsClient.sendMessageCalls.length, 1);
     assert.deepEqual(wsClient.sendMessageCalls[0].body, {
       msgtype: "markdown",
-      markdown: { content: "【sender:lirui】你好" },
+      markdown: { content: "【sender:alice】你好" },
     });
   });
 
@@ -1750,7 +1849,7 @@ describe("WS e2e", () => {
 
     await wecomChannelPlugin.outbound.sendText({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text: "## 标题\n- 第一项",
       accountId: "default",
     });
@@ -1773,7 +1872,7 @@ describe("WS e2e", () => {
 
     await wecomChannelPlugin.outbound.sendText({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text,
       accountId: "default",
     });
@@ -1804,7 +1903,7 @@ describe("WS e2e", () => {
 
     await wecomChannelPlugin.outbound.sendText({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text,
       accountId: "default",
     });
@@ -1830,7 +1929,7 @@ describe("WS e2e", () => {
 
     const result = await wecomChannelPlugin.outbound.sendMedia({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text: "附件如下",
       mediaUrl: filePath,
       mediaLocalRoots: [tempDir],
@@ -1843,7 +1942,7 @@ describe("WS e2e", () => {
     // File uploaded + sent via WS
     assert.equal(wsClient.uploadMediaCalls.length, 1);
     assert.equal(wsClient.sendMediaMessageCalls.length, 1);
-    assert.equal(wsClient.sendMediaMessageCalls[0].chatId, "lirui");
+    assert.equal(wsClient.sendMediaMessageCalls[0].chatId, "alice");
     assert.equal(result.channel, "wecom");
   });
 
@@ -1866,7 +1965,7 @@ describe("WS e2e", () => {
 
     const result = await wecomChannelPlugin.outbound.sendMedia({
       cfg,
-      to: "wecom:lirui",
+      to: "wecom:alice",
       text: "图片如下",
       mediaUrl: imagePath,
       mediaLocalRoots: [tempDir],
@@ -1879,7 +1978,7 @@ describe("WS e2e", () => {
     // Image uploaded + sent via WS
     assert.equal(wsClient.uploadMediaCalls.length, 1);
     assert.equal(wsClient.sendMediaMessageCalls.length, 1);
-    assert.equal(wsClient.sendMediaMessageCalls[0].chatId, "lirui");
+    assert.equal(wsClient.sendMediaMessageCalls[0].chatId, "alice");
     assert.equal(result.channel, "wecom");
   });
 
@@ -1993,7 +2092,7 @@ describe("WS e2e", () => {
       // All messages should complete
       assert.equal(messageTimings.length, CONCURRENT_USERS);
 
-      // Note: Since all 3 messages come from the same sender (lirui),
+      // Note: Since all 3 messages come from the same sender (alice),
       // they are processed serially in the same session lane.
       // This test verifies that same-session messages are serialized.
 

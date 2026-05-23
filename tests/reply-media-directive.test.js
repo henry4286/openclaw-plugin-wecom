@@ -114,9 +114,9 @@ describe("buildBodyForAgent", () => {
 
 describe("buildWsActiveSendBody", () => {
   it("uses markdown payloads for simple outbound messages", () => {
-    assert.deepEqual(buildWsActiveSendBody("[lirui] 你好"), {
+    assert.deepEqual(buildWsActiveSendBody("[alice] 你好"), {
       msgtype: "markdown",
-      markdown: { content: "[lirui] 你好" },
+      markdown: { content: "[alice] 你好" },
     });
   });
 
@@ -268,16 +268,16 @@ describe("buildReplyMediaGuidance", () => {
   });
 
   it("uses the dm peer id as the sender label in cross-chat guidance", () => {
-    const guidance = buildReplyMediaGuidance({}, "wecom-dm-lirui");
-    assert.ok(guidance.includes("[[sender:lirui]]"));
-    assert.ok(!guidance.includes("[[sender:wecom-dm-lirui]]"));
+    const guidance = buildReplyMediaGuidance({}, "wecom-dm-alice");
+    assert.ok(guidance.includes("[[sender:alice]]"));
+    assert.ok(!guidance.includes("[[sender:wecom-dm-alice]]"));
   });
 });
 
 describe("resolveOutboundSenderLabel", () => {
   it("uses dm peer ids for dynamic dm agents", () => {
-    assert.equal(resolveOutboundSenderLabel("wecom-dm-lirui"), "lirui");
-    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-lirui"), "lirui");
+    assert.equal(resolveOutboundSenderLabel("wecom-dm-alice"), "alice");
+    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-alice"), "alice");
   });
 
   it("uses explicit group labels for dynamic group agents", () => {

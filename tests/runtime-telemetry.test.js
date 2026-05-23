@@ -20,16 +20,16 @@ describe("runtime telemetry", () => {
   it("resets 24h reply quota when a new inbound message arrives", () => {
     const at = Date.UTC(2026, 2, 9, 0, 0, 0);
 
-    recordInboundMessage({ accountId: "default", chatId: "lirui", at });
-    recordPassiveReply({ accountId: "default", chatId: "lirui", at: at + 1_000 });
-    recordPassiveReply({ accountId: "default", chatId: "lirui", at: at + 2_000 });
+    recordInboundMessage({ accountId: "default", chatId: "alice", at });
+    recordPassiveReply({ accountId: "default", chatId: "alice", at: at + 1_000 });
+    recordPassiveReply({ accountId: "default", chatId: "alice", at: at + 2_000 });
 
-    let quota = forecastReplyQuota({ accountId: "default", chatId: "lirui", at: at + 2_500 });
+    let quota = forecastReplyQuota({ accountId: "default", chatId: "alice", at: at + 2_500 });
     assert.equal(quota.windowActive, true);
     assert.equal(quota.used, 2);
 
-    recordInboundMessage({ accountId: "default", chatId: "lirui", at: at + 10_000 });
-    quota = forecastReplyQuota({ accountId: "default", chatId: "lirui", at: at + 10_500 });
+    recordInboundMessage({ accountId: "default", chatId: "alice", at: at + 10_000 });
+    quota = forecastReplyQuota({ accountId: "default", chatId: "alice", at: at + 10_500 });
     assert.equal(quota.windowActive, true);
     assert.equal(quota.used, 0);
     assert.equal(quota.remaining, 30);
@@ -38,21 +38,21 @@ describe("runtime telemetry", () => {
   it("prioritizes 24h reply quota for active sends, then falls back to daily active quota", () => {
     const at = Date.UTC(2026, 2, 9, 0, 0, 0);
 
-    recordInboundMessage({ accountId: "default", chatId: "lirui", at });
-    let forecast = forecastActiveSendQuota({ accountId: "default", chatId: "lirui", at: at + 1_000 });
+    recordInboundMessage({ accountId: "default", chatId: "alice", at });
+    let forecast = forecastActiveSendQuota({ accountId: "default", chatId: "alice", at: at + 1_000 });
     assert.equal(forecast.bucket, "reply24h");
     assert.equal(forecast.used, 0);
 
     for (let index = 0; index < 30; index += 1) {
-      recordActiveSend({ accountId: "default", chatId: "lirui", at: at + 2_000 + index });
+      recordActiveSend({ accountId: "default", chatId: "alice", at: at + 2_000 + index });
     }
 
-    forecast = forecastActiveSendQuota({ accountId: "default", chatId: "lirui", at: at + 5_000 });
+    forecast = forecastActiveSendQuota({ accountId: "default", chatId: "alice", at: at + 5_000 });
     assert.equal(forecast.bucket, "activeDaily");
     assert.equal(forecast.used, 0);
 
-    recordActiveSend({ accountId: "default", chatId: "lirui", at: at + 6_000 });
-    forecast = forecastActiveSendQuota({ accountId: "default", chatId: "lirui", at: at + 7_000 });
+    recordActiveSend({ accountId: "default", chatId: "alice", at: at + 6_000 });
+    forecast = forecastActiveSendQuota({ accountId: "default", chatId: "alice", at: at + 7_000 });
     assert.equal(forecast.bucket, "activeDaily");
     assert.equal(forecast.used, 1);
   });
@@ -60,9 +60,9 @@ describe("runtime telemetry", () => {
   it("tracks displaced connections and quota pressure for status issues", () => {
     const at = Date.UTC(2026, 2, 9, 0, 0, 0);
 
-    recordInboundMessage({ accountId: "default", chatId: "lirui", at });
+    recordInboundMessage({ accountId: "default", chatId: "alice", at });
     for (let index = 0; index < 30; index += 1) {
-      recordPassiveReply({ accountId: "default", chatId: "lirui", at: at + index + 1 });
+      recordPassiveReply({ accountId: "default", chatId: "alice", at: at + index + 1 });
     }
     markAccountDisplaced({
       accountId: "default",

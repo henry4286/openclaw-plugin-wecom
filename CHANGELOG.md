@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.3.0 (2026-05-23)
+
+相对 [v3.2.0](https://github.com/sunnoy/openclaw-plugin-wecom/releases/tag/v3.2.0) 的变更摘要。
+
+### Features
+
+- **图文 reply 支持 markdown_v2 + 远程图片直挂**: 将模型 reply 里的远程图片以企业微信 `msg_item` 直接附加到 passive markdown 回复，避免重复链接展开
+- **OpenClaw 2026.5.20 兼容性验证**: 验证插件在最新 OpenClaw 上的 SDK subpath 导入 (`plugin-sdk/{status-helpers,core,setup,media-runtime}`)、`contracts.tools` 声明、hook 注册全部仍生效；peerDependency 范围保持 `^2026.3.23-2` 不变
+
+### Fixes
+
+- **空 turn 不再下发「处理完成。」兜底文案**: 模型 0 输出时（既无 visible text 也无 reasoning 也无 media），插件改为静默关流，企业微信侧 `⏳ 处理中…` 占位会被正常清除，而不是显示无意义的「处理完成。」消息
+- **passive reply 远程图片去重 / planning 延迟**: 修复同一条回复里既有可见 markdown 链接又被识别为媒体导致重复发送的问题；推迟 media planning 到 reply finalize 阶段以保留原始 markdown 结构
+
+### Chore
+
+- **OSS 隐私清理**: 移除测试 fixture 中的真实 WeCom userid / chatid 与脚本/文档中的内部 SSH 主机名占位，全部替换为通用占位 (`alice`/`bob`、`your-host` 等)
+
 ## 3.2.0 (2026-04-27)
 
 相对 [v3.1.0](https://github.com/sunnoy/openclaw-plugin-wecom/releases/tag/v3.1.0) 的变更摘要。
@@ -26,7 +44,7 @@
 - **MCP 拦截器增强**: 支持 SmartPage `page_filepath` 读取、SmartPage 导出内容落本地文件、`get_msg_media` base64 媒体落本地文件、业务错误码触发缓存清理
 - **MCP 多账号 fallback**: 默认账号非长连接机器人时，自动选择第一个配置了 `botId/secret` 的账号获取 MCP 配置
 - **doc-only skills 部署收敛**: 移除当前企业未开通的 contact/todo/meeting/schedule/msg/send-media skills，保留 doc、smart sheet 和 preflight 相关 skills
-- **ali-ai 安装脚本**: 新增 `scripts/install-plugin.sh`，同步插件代码与共享 skills、远端执行 `npm ci --omit=dev`、保持 `root:root` ownership 并重启校验 gateway
+- **远程安装脚本**: 新增 `scripts/install-plugin.sh`，同步插件代码与共享 skills、远端执行 `npm ci --omit=dev`、保持 `root:root` ownership 并重启校验 gateway
 
 ### Docs
 

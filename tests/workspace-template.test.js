@@ -15,38 +15,38 @@ import { resetStateForTesting, setOpenclawConfig, setRuntime } from "../wecom/st
 describe("upsertAgentIdOnlyEntry", () => {
   it("adds heartbeat config when creating a dynamic agent entry", () => {
     const cfg = { agents: { list: [{ id: "main" }] } };
-    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-lirui");
+    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-alice");
 
     assert.equal(changed, true);
     assert.deepEqual(cfg.agents.list, [
       { id: "main" },
-      { id: "wecom-dm-lirui", heartbeat: {} },
+      { id: "wecom-dm-alice", heartbeat: {} },
     ]);
   });
 
   it("creates agents.list with main and new dynamic agent heartbeat config", () => {
     const cfg = {};
-    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-lirui");
+    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-alice");
 
     assert.equal(changed, true);
     assert.deepEqual(cfg.agents.list, [
       { id: "main", heartbeat: {} },
-      { id: "wecom-dm-lirui", heartbeat: {} },
+      { id: "wecom-dm-alice", heartbeat: {} },
     ]);
   });
 
   it("does not overwrite existing entries", () => {
     const cfg = {
       agents: {
-        list: [{ id: "main" }, { id: "wecom-dm-lirui", heartbeat: { every: "5m" } }],
+        list: [{ id: "main" }, { id: "wecom-dm-alice", heartbeat: { every: "5m" } }],
       },
     };
-    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-lirui");
+    const changed = upsertAgentIdOnlyEntry(cfg, "wecom-dm-alice");
 
     assert.equal(changed, false);
     assert.deepEqual(cfg.agents.list, [
       { id: "main" },
-      { id: "wecom-dm-lirui", heartbeat: { every: "5m" } },
+      { id: "wecom-dm-alice", heartbeat: { every: "5m" } },
     ]);
   });
 
@@ -169,10 +169,10 @@ describe("ensureDynamicAgentListed", () => {
       },
     });
 
-    await ensureDynamicAgentListed("wecom-dm-lirui", null, "main");
+    await ensureDynamicAgentListed("wecom-dm-alice", null, "main");
 
     assert.equal(writes.length, 0);
-    assert.ok(cfg.agents.list.some((entry) => entry.id === "wecom-dm-lirui"));
+    assert.ok(cfg.agents.list.some((entry) => entry.id === "wecom-dm-alice"));
   });
 
   it("persists config only when explicitly requested", async () => {
@@ -188,10 +188,10 @@ describe("ensureDynamicAgentListed", () => {
       },
     });
 
-    await ensureDynamicAgentListed("wecom-dm-lirui", null, "main", { persistToConfig: true });
+    await ensureDynamicAgentListed("wecom-dm-alice", null, "main", { persistToConfig: true });
 
     assert.equal(writes.length, 1);
-    assert.ok(writes[0].agents.list.some((entry) => entry.id === "wecom-dm-lirui"));
+    assert.ok(writes[0].agents.list.some((entry) => entry.id === "wecom-dm-alice"));
   });
 });
 
@@ -409,12 +409,12 @@ describe("resolveAgentWorkspaceDirLocal", () => {
   });
 
   it("matches openclaw core by nesting non-default agents under agents.defaults.workspace", () => {
-    const resolved = resolveAgentWorkspaceDirLocal("wecom-dm-lirui", {
+    const resolved = resolveAgentWorkspaceDirLocal("wecom-dm-alice", {
       agents: {
         defaults: { workspace: "/data/openclaw/workspace" },
-        list: [{ id: "main" }, { id: "wecom-dm-lirui" }],
+        list: [{ id: "main" }, { id: "wecom-dm-alice" }],
       },
     });
-    assert.equal(resolved, "/data/openclaw/workspace/wecom-dm-lirui");
+    assert.equal(resolved, "/data/openclaw/workspace/wecom-dm-alice");
   });
 });

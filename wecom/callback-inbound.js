@@ -40,7 +40,7 @@ import {
   MEDIA_DOCUMENT_PLACEHOLDER,
 } from "./constants.js";
 import { verifyCallbackSignature, decryptCallbackMessage } from "./callback-crypto.js";
-import { downloadCallbackMedia } from "./callback-media.js";
+import { downloadCallbackMedia, CallbackMediaOversizeError } from "./callback-media.js";
 import { assertPathInsideSandbox } from "./sandbox.js";
 import {
   buildInboundContext,
@@ -305,6 +305,22 @@ async function processCallbackMessage({ parsedMsg, account, config, runtime }) {
       });
       mediaList.push(downloaded);
     } catch (error) {
+      if (error instanceof CallbackMediaOversizeError) {
+        const maxMb = error.maxBytes / 1024 / 1024;
+        logger.warn(
+          `[CB:${account.accountId}] Inbound media oversize: size=${error.sizeBytes}, max=${error.maxBytes}, filename=${error.filename ?? "(none)"}`,
+        );
+        if (account.agentCredentials) {
+          await agentSendText({
+            agent: account.agentCredentials,
+            toUser: senderId,
+            text: `当前 OpenClaw 限制附件不超过 ${maxMb}MB，请减小附件再重发，或调整 agents.defaults.mediaMaxMb 后重启 Gateway。`,
+          }).catch((err) =>
+            logger.warn(`[CB:${account.accountId}] Oversize hint reply failed: ${err.message}`),
+          );
+        }
+        return;
+      }
       logger.error(`[CB:${account.accountId}] Inbound media download failed: ${error.message}`);
     }
   }

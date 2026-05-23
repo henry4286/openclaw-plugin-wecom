@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 
-const DEFAULT_HOST = "ali-ai";
+const DEFAULT_HOST = "your-host";
 const DEFAULT_STATE_ROOT = "/data/openclaw/state-root";
 
 function parseCliArgs(argv) {
@@ -28,7 +28,7 @@ function printUsage() {
   console.error(
     [
       "Usage:",
-      "  node scripts/set-reasoning-stream-remote.js [--host=ali-ai] [--stateRoot=/data/openclaw/state-root] [--write]",
+      "  node scripts/set-reasoning-stream-remote.js [--host=your-host] [--stateRoot=/data/openclaw/state-root] [--write]",
       "",
       "Behavior:",
       "  Default mode is dry-run: only reports which session entries are missing reasoningLevel.",

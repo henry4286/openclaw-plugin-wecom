@@ -264,6 +264,63 @@ export async function uploadAndSendMedia({
   }
 }
 
+export async function uploadAndReplyMedia({
+  wsClient,
+  frame,
+  mediaUrl,
+  mediaLocalRoots,
+  includeDefaultMediaLocalRoots = true,
+  log,
+  errorLog,
+}) {
+  try {
+    if (typeof wsClient?.replyMedia !== "function") {
+      return {
+        ok: false,
+        error: "WS client does not support passive media replies",
+      };
+    }
+
+    log?.(`[wecom] Uploading reply media: url=${mediaUrl}`);
+    const media = await resolveMediaFile(mediaUrl, mediaLocalRoots, includeDefaultMediaLocalRoots);
+    const detectedType = detectWeComMediaType(media.contentType);
+    const sizeCheck = applyFileSizeLimits(media.buffer.length, detectedType, media.contentType);
+
+    if (sizeCheck.shouldReject) {
+      errorLog?.(`[wecom] Reply media rejected: ${sizeCheck.rejectReason}`);
+      return {
+        ok: false,
+        rejected: true,
+        rejectReason: sizeCheck.rejectReason,
+        finalType: sizeCheck.finalType,
+      };
+    }
+
+    const finalType = sizeCheck.finalType;
+    const uploadResult = await wsClient.uploadMedia(media.buffer, {
+      type: finalType,
+      filename: media.fileName,
+    });
+    log?.(`[wecom] Reply media uploaded: media_id=${uploadResult.media_id}, type=${finalType}`);
+
+    const result = await wsClient.replyMedia(frame, finalType, uploadResult.media_id);
+    const messageId = result?.headers?.req_id ?? `wecom-reply-media-${Date.now()}`;
+    log?.(`[wecom] Media sent via replyMedia: type=${finalType}`);
+
+    return {
+      ok: true,
+      messageId,
+      finalType,
+      downgraded: sizeCheck.downgraded,
+      downgradeNote: sizeCheck.downgradeNote,
+    };
+  } catch (err) {
+    const errMsg = String(err);
+    errorLog?.(`[wecom] Failed to upload/reply media: url=${mediaUrl}, error=${errMsg}`);
+    return { ok: false, error: errMsg };
+  }
+}
+
 export const mediaUploaderTesting = {
   resolveMediaFile,
   buildStreamImageMsgItem,

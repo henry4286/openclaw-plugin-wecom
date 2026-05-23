@@ -17,30 +17,30 @@ describe("outbound sender protocol", () => {
   });
 
   it("converts sender protocol to visible inline prefix", () => {
-    assert.deepEqual(applyOutboundSenderProtocol("[[sender:lirui]]\n你好"), {
-      sender: "lirui",
-      content: "【sender:lirui】你好",
+    assert.deepEqual(applyOutboundSenderProtocol("[[sender:alice]]\n你好"), {
+      sender: "alice",
+      content: "【sender:alice】你好",
       usedProtocol: true,
     });
   });
 
   it("keeps multiline bodies readable", () => {
-    assert.deepEqual(applyOutboundSenderProtocol("[[sender:lirui]]\n第一行\n第二行"), {
-      sender: "lirui",
-      content: "【sender:lirui】\n第一行\n第二行",
+    assert.deepEqual(applyOutboundSenderProtocol("[[sender:alice]]\n第一行\n第二行"), {
+      sender: "alice",
+      content: "【sender:alice】\n第一行\n第二行",
       usedProtocol: true,
     });
   });
 
   it("adds a protocol header when missing", () => {
-    assert.equal(ensureOutboundSenderProtocol("你好", "lirui"), "[[sender:lirui]]\n你好");
+    assert.equal(ensureOutboundSenderProtocol("你好", "alice"), "[[sender:alice]]\n你好");
   });
 });
 
 describe("resolveOutboundSenderLabel", () => {
   it("uses dm peer ids for dynamic dm agents", () => {
-    assert.equal(resolveOutboundSenderLabel("wecom-dm-lirui"), "lirui");
-    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-lirui"), "lirui");
+    assert.equal(resolveOutboundSenderLabel("wecom-dm-alice"), "alice");
+    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-alice"), "alice");
   });
 
   it("uses explicit group labels for dynamic group agents", () => {
@@ -64,13 +64,13 @@ describe("prepareWecomMessageToolParams", () => {
           target: "韦元栋",
           message: "你好",
         },
-        "wecom-dm-lirui",
+        "wecom-dm-alice",
       ),
       {
         action: "send",
         channel: "wecom",
         target: "韦元栋",
-        message: "[[sender:lirui]]\n你好",
+        message: "[[sender:alice]]\n你好",
       },
     );
   });
@@ -79,10 +79,10 @@ describe("prepareWecomMessageToolParams", () => {
     const params = {
       action: "send",
       channel: "wecom",
-      target: "lirui",
+      target: "alice",
       message: "你好",
     };
-    assert.equal(prepareWecomMessageToolParams(params, "wecom-dm-lirui"), params);
+    assert.equal(prepareWecomMessageToolParams(params, "wecom-dm-alice"), params);
   });
 
   it("does not inject for non-dynamic agents", () => {

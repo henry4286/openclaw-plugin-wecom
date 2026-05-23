@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 
-const DEFAULT_HOST = "ali-ai";
+const DEFAULT_HOST = "your-host";
 const DEFAULT_CATEGORIES = ["doc", "contact", "todo", "meeting", "schedule", "msg"];
 
 const REMOTE_NODE = String.raw`
@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 
 const DEFAULT_WS_URL = "wss://qyapi.weixin.qq.com/cgi-bin/assistant/get_ticket";
-const DEFAULT_PLUGIN_VERSION = "2026.4.23";
+const DEFAULT_PLUGIN_VERSION = "2026.5.14";
 const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
 const DEFAULT_CATEGORIES = ["doc", "contact", "todo", "meeting", "schedule", "msg"];
 const DEFAULT_ACCOUNT_ID = "default";

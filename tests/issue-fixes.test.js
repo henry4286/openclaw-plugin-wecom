@@ -73,9 +73,9 @@ describe("outbound deliveryMode (upstream alignment)", () => {
 
 describe("messaging.normalizeTarget", () => {
   it("treats prefixed and unprefixed DM targets as the same WeCom user", () => {
-    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("lirui"), "user:lirui");
-    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("wecom:lirui"), "user:lirui");
-    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("wework:lirui"), "user:lirui");
+    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("alice"), "user:alice");
+    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("wecom:alice"), "user:alice");
+    assert.equal(wecomChannelPlugin.messaging.normalizeTarget("wework:alice"), "user:alice");
   });
 
   it("canonicalizes explicit chat and group targets", () => {
