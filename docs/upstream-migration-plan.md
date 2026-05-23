@@ -58,27 +58,27 @@ PR-2（可靠性对齐）   PR-3（新能力 + MCP 协商版本升级）
      --exclude "node_modules/" \
      --exclude "upstream/" \
      --exclude "skills/" \
-     ./ ali-ai:/root/.openclaw/extensions/wecom/
+     ./ your-host:/root/.openclaw/extensions/wecom/
    ```
 
 3. **回退 skill 目录**（仅当该 PR 改过 `skills/`）
 
    ```bash
-   rsync -av --chown=root:root ./skills/ ali-ai:/data/openclaw/skills/
+   rsync -av --chown=root:root ./skills/ your-host:/data/openclaw/skills/
    ```
 
    不要对 `/data/openclaw/skills/` 使用 `--delete`，避免删除非 wecom skill。若回滚的是新增 skill 目录，只删除本 PR 新增的具体目录，例如：
 
    ```bash
-   ssh ali-ai 'rm -rf /data/openclaw/skills/wecom-send-template-card'
+   ssh your-host 'rm -rf /data/openclaw/skills/wecom-send-template-card'
    ```
 
 4. **重启并验证**
 
    ```bash
-   ssh ali-ai 'openclaw gateway restart'
-   ssh ali-ai 'openclaw skills info wecom-msg'
-   ssh ali-ai 'openclaw skills info wecom-preflight'
+   ssh your-host 'openclaw gateway restart'
+   ssh your-host 'openclaw skills info wecom-msg'
+   ssh your-host 'openclaw skills info wecom-preflight'
    ```
 
 ---
@@ -154,7 +154,7 @@ cp -a upstream/wecom-openclaw-plugin-2026.4.23/skills/wecom-send-template-card s
 **同步到服务器**（按 AGENTS.md `# 插件同步`）：
 
 ```bash
-rsync -av --chown=root:root ./skills/ ali-ai:/data/openclaw/skills/
+rsync -av --chown=root:root ./skills/ your-host:/data/openclaw/skills/
 ```
 
 ### 1.6 README 差异表重写
@@ -261,7 +261,7 @@ PR-3 的实现顺序已按以下闸门完成：
 
    同步把 `fetchMcpConfig()` 中的 `plugin_version` 使用处改为 `OFFICIAL_WECOM_PLUGIN_VERSION`。
 
-4. 升级版本后在 ali-ai 上完成同步、重启和 gateway/skills 验证。
+4. 升级版本后在 your-host 上完成同步、重启和 gateway/skills 验证。
 
 ### 3.1 Template Card 解析器
 
@@ -420,8 +420,8 @@ async function callMcpWithInterceptors(ctx) {
 | 单元测试全过 | `npm test` |
 | 本地单文件 E2E | `node --test tests/ws.e2e.test.js` |
 | MCP 接口 dry run（PR-3 或 MCP 改动时） | `node scripts/wecom-mcp-remote-call.js --category doc --method get_doc_base_info --args '{"docid":"<id>"}'` |
-| ali-ai 同步 | 按 AGENTS.md rsync 命令 |
-| Gateway 重启验证 | `ssh ali-ai 'openclaw gateway restart'` |
+| your-host 同步 | 按 AGENTS.md rsync 命令 |
+| Gateway 重启验证 | `ssh your-host 'openclaw gateway restart'` |
 
 ### PR-1 特别验证项
 
@@ -431,16 +431,16 @@ async function callMcpWithInterceptors(ctx) {
 ### PR-2 特别验证项
 
 - mock errcode `846608` 注入测试（`tests/ws-monitor.stream-expiry.test.js`）
-- ali-ai takeover / reconnect 场景实测（终止一个实例，观察另一个实例接管行为）
+- your-host takeover / reconnect 场景实测（终止一个实例，观察另一个实例接管行为）
 
 ### PR-3 特别验证项
 
-- `PLUGIN_VERSION` 升级后，`wecom_mcp` 对 doc/smartpage 接口的调用是否正常返回（ali-ai dry run）
-- Template Card：ali-ai 上让 Agent 输出有效 template card JSON 代码块，验证卡片发出；再输出含 `card_type` 的普通 tool 参数示例，验证不会误发卡片
+- `PLUGIN_VERSION` 升级后，`wecom_mcp` 对 doc/smartpage 接口的调用是否正常返回（your-host dry run）
+- Template Card：your-host 上让 Agent 输出有效 template card JSON 代码块，验证卡片发出；再输出含 `card_type` 的普通 tool 参数示例，验证不会误发卡片
 - SmartPage：调用 `wecom-doc-manager` skill 创建页面，验证异步导出流程
 - button_interaction：点击卡片按钮，验证事件回填到 Agent 输入
 
 ### PR-4 特别验证项
 
 - `callback-crypto.js` 替换：固定测试向量下旧实现与 SDK `WecomCrypto` byte-level 比对通过
-- `replyStreamNonBlocking`：ali-ai 上发长文本，观察 thinking stream 流畅度和 quota 消耗
+- `replyStreamNonBlocking`：your-host 上发长文本，观察 thinking stream 流畅度和 quota 消耗

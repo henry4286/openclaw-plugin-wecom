@@ -487,6 +487,23 @@ export const wecomChannelPlugin = {
 
       let textAlreadySent = false;
       if (wsClient?.isConnected && mediaUrl) {
+        // EXPERIMENT 2026-05-09: for remote HTTPS image URLs, re-inject as
+        // ![](url) into the text and send a single markdown_v2 frame so the
+        // image renders inline. Falls through to the legacy path on failure.
+        const isRemoteHttpsImage =
+          /^https?:\/\//i.test(String(mediaUrl).trim()) &&
+          /\.(?:apng|avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(String(mediaUrl).trim());
+        if (isRemoteHttpsImage && text) {
+          try {
+            const combined = `${text}\n\n![图片](${mediaUrl})`;
+            const result = await sendWsMessage({ to: chatId, content: combined, accountId: resolvedAccountId });
+            recordOutboundActivity({ accountId: resolvedAccountId });
+            logger.info(`[wecom] inline markdown_v2 image sent chatId=${chatId}`);
+            return { channel: CHANNEL_ID, messageId: result?.messageId || `wecom-ws-inline-${Date.now()}`, chatId };
+          } catch (inlineErr) {
+            logger.warn(`[wecom] inline markdown_v2 image send failed, falling back to attachment: ${inlineErr.message}`);
+          }
+        }
         if (text) {
           try {
             await sendWsMessage({ to: chatId, content: text, accountId: resolvedAccountId });

@@ -11,7 +11,7 @@ describe("ensureDefaultSessionReasoningLevel", () => {
   it("initializes missing reasoningLevel to stream", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wecom-reasoning-default-"));
     const storePath = path.join(dir, "sessions.json");
-    const sessionKey = "agent:wecom-dm-lirui:direct:lirui";
+    const sessionKey = "agent:wecom-dm-alice:direct:alice";
     await writeFile(storePath, `${JSON.stringify({
       [sessionKey]: {
         sessionId: "session-1",
@@ -42,7 +42,7 @@ describe("ensureDefaultSessionReasoningLevel", () => {
   it("does not overwrite an existing reasoningLevel", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wecom-reasoning-default-"));
     const storePath = path.join(dir, "sessions.json");
-    const sessionKey = "agent:wecom-dm-lirui:direct:lirui";
+    const sessionKey = "agent:wecom-dm-alice:direct:alice";
     await writeFile(storePath, `${JSON.stringify({
       [sessionKey]: {
         sessionId: "session-1",

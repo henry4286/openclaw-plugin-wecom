@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="ali-ai"
+HOST="your-host"
 REMOTE_PLUGIN_DIR="/root/.openclaw/extensions/wecom"
 REMOTE_SKILLS_DIR="/data/openclaw/skills"
 RESTART_GATEWAY=1
@@ -37,7 +37,7 @@ Usage: scripts/install-plugin.sh [options]
 Install/sync this WeCom plugin to the OpenClaw host.
 
 Options:
-  --host <host>                 SSH host, default: ali-ai
+  --host <host>                 SSH host, default: your-host
   --plugin-dir <path>           Remote plugin dir, default: /root/.openclaw/extensions/wecom
   --skills-dir <path>           Remote shared skills dir, default: /data/openclaw/skills
   --run-tests                   Run npm test before syncing

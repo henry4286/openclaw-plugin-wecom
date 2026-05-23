@@ -6,6 +6,13 @@
   "channels": [
     "wecom"
   ],
+  "contracts": {
+    "tools": [
+      "wecom_mcp",
+      "stage_browser_media",
+      "image_studio"
+    ]
+  },
   "skills": [
     "./skills"
   ],

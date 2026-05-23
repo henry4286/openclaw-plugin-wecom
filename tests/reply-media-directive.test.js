@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   wsMonitorTesting,
   buildReplyMediaGuidance,
+  normalizeReplyPayload,
   resolveReplyMediaLocalRoots,
 } from "../wecom/ws-monitor.js";
 
@@ -12,6 +13,8 @@ const {
   splitReplyMediaFromText,
   buildBodyForAgent,
   buildWsActiveSendBody,
+  hasRemoteMarkdownImage,
+  extractRemoteMarkdownImageUrls,
   normalizeReplyMediaUrlForLoad,
 } = wsMonitorTesting;
 const { resolveOutboundSenderLabel } = wsMonitorTesting;
@@ -111,9 +114,9 @@ describe("buildBodyForAgent", () => {
 
 describe("buildWsActiveSendBody", () => {
   it("uses markdown payloads for simple outbound messages", () => {
-    assert.deepEqual(buildWsActiveSendBody("[lirui] 你好"), {
+    assert.deepEqual(buildWsActiveSendBody("[alice] 你好"), {
       msgtype: "markdown",
-      markdown: { content: "[lirui] 你好" },
+      markdown: { content: "[alice] 你好" },
     });
   });
 
@@ -122,6 +125,83 @@ describe("buildWsActiveSendBody", () => {
       msgtype: "markdown",
       markdown: { content: "## 标题\n- 第一项" },
     });
+  });
+
+  it("uses markdown_v2 when outbound content contains remote markdown images", () => {
+    const content = "步骤如下\n\n![图1](https://example.com/a.png)";
+    assert.equal(hasRemoteMarkdownImage(content), true);
+    assert.deepEqual(extractRemoteMarkdownImageUrls(content), ["https://example.com/a.png"]);
+    assert.deepEqual(buildWsActiveSendBody(content), {
+      msgtype: "markdown_v2",
+      markdown_v2: { content },
+    });
+  });
+});
+
+describe("normalizeReplyPayload", () => {
+  it("keeps remote markdown images as fallback reply media for passive replies", () => {
+    const imageUrl = "https://example.com/a.png";
+    const content = `步骤如下\n\n![图1](${imageUrl})`;
+    const result = normalizeReplyPayload({
+      text: content,
+      mediaUrls: [imageUrl],
+    });
+
+    assert.equal(result.text, content);
+    assert.deepEqual(result.mediaUrls, [imageUrl]);
+  });
+
+  it("keeps remote reply media when it is not already embedded in markdown text", () => {
+    const imageUrl = "https://example.com/a.png";
+    const result = normalizeReplyPayload({
+      text: "图片如下",
+      mediaUrls: [imageUrl],
+    });
+
+    assert.equal(result.text, "图片如下");
+    assert.deepEqual(result.mediaUrls, [imageUrl]);
+  });
+
+  it("rewrites standalone remote image URLs to markdown images and keeps fallback media", () => {
+    const imageUrl = "https://example.com/a.png";
+    const result = normalizeReplyPayload({
+      text: `图片参考：\n${imageUrl}`,
+      mediaUrls: [imageUrl],
+    });
+
+    assert.equal(result.text, `图片参考：\n![图片](https://example.com/a.png)`);
+    assert.deepEqual(result.mediaUrls, [imageUrl]);
+  });
+
+  it("does not rewrite standalone non-image URLs", () => {
+    const docUrl = "https://example.com/a.docx";
+    const result = normalizeReplyPayload({
+      text: `参考资料：\n${docUrl}`,
+      mediaUrls: [],
+    });
+
+    assert.equal(result.text, `参考资料：\n${docUrl}`);
+    assert.deepEqual(result.mediaUrls, []);
+  });
+
+  it("keeps visible markdown images as media but not visible document/video links", () => {
+    const imageUrl = "https://example.com/a.png";
+    const docUrl = "https://example.com/a.docx";
+    const videoUrl = "https://example.com/a.mp4";
+    const content = [
+      "### 图片参考",
+      `![图1](${imageUrl})`,
+      "### 参考资料",
+      `- [文档](${docUrl})`,
+      `- [视频](${videoUrl})`,
+    ].join("\n");
+    const result = normalizeReplyPayload({
+      text: content,
+      mediaUrls: [imageUrl, docUrl, videoUrl],
+    });
+
+    assert.equal(result.text, content);
+    assert.deepEqual(result.mediaUrls, [imageUrl]);
   });
 });
 
@@ -188,16 +268,16 @@ describe("buildReplyMediaGuidance", () => {
   });
 
   it("uses the dm peer id as the sender label in cross-chat guidance", () => {
-    const guidance = buildReplyMediaGuidance({}, "wecom-dm-lirui");
-    assert.ok(guidance.includes("[[sender:lirui]]"));
-    assert.ok(!guidance.includes("[[sender:wecom-dm-lirui]]"));
+    const guidance = buildReplyMediaGuidance({}, "wecom-dm-alice");
+    assert.ok(guidance.includes("[[sender:alice]]"));
+    assert.ok(!guidance.includes("[[sender:wecom-dm-alice]]"));
   });
 });
 
 describe("resolveOutboundSenderLabel", () => {
   it("uses dm peer ids for dynamic dm agents", () => {
-    assert.equal(resolveOutboundSenderLabel("wecom-dm-lirui"), "lirui");
-    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-lirui"), "lirui");
+    assert.equal(resolveOutboundSenderLabel("wecom-dm-alice"), "alice");
+    assert.equal(resolveOutboundSenderLabel("wecom-sales-dm-alice"), "alice");
   });
 
   it("uses explicit group labels for dynamic group agents", () => {

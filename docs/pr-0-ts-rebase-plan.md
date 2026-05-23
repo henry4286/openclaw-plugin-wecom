@@ -90,7 +90,7 @@ git checkout -b refactor/ts-rebase
 # 期间 main 上如有 hotfix，cherry-pick 过来
 ```
 
-合并时机：PR-0 全部完成 + ali-ai 灰度 3 天无回归后，整体 squash merge 到 main。
+合并时机：PR-0 全部完成 + your-host 灰度 3 天无回归后，整体 squash merge 到 main。
 
 ---
 
@@ -313,7 +313,7 @@ import { WecomCrypto } from "@wecom/aibot-node-sdk";
 | WS E2E | `node --test tests/ws.e2e.test.js` | ✅ |
 | import 验证 | `node -e "import('./dist/index.esm.js')"` | ✅ |
 
-### 0.5.2 ali-ai 部署验证
+### 0.5.2 your-host 部署验证
 
 ```bash
 # 同步插件代码（含 dist/，注意 src/ 不需要同步到生产）
@@ -324,15 +324,15 @@ rsync -av --delete --chown=root:root \
   --exclude "upstream/" \
   --exclude "skills/" \
   --exclude "tests/" \
-  ./ ali-ai:/root/.openclaw/extensions/wecom/
+  ./ your-host:/root/.openclaw/extensions/wecom/
 
 # 同步新 skill（含官方的 wecom-send-template-card）
 rsync -av --chown=root:root \
-  ./skills/ ali-ai:/data/openclaw/skills/
+  ./skills/ your-host:/data/openclaw/skills/
 
 # 重启
-ssh ali-ai 'openclaw gateway restart'
-ssh ali-ai 'openclaw skills info wecom-send-template-card'
+ssh your-host 'openclaw gateway restart'
+ssh your-host 'openclaw skills info wecom-send-template-card'
 ```
 
 ### 0.5.3 真实场景灰度（3 天）
@@ -375,7 +375,7 @@ PR-0 一次性把原计划 PR-1/2/3 全部覆盖。
 |---|:---:|---|
 | 官方源码与本仓库 sandbox/runtime API 不兼容 | 中 | Phase 0.1 验证构建管道时同时验证基础 import |
 | TS 类型错误集中爆发 | 中 | 每移植一个模块就 `tsc --noEmit`，避免堆积 |
-| ali-ai 沙箱镜像缺 TS 工具链 | 低 | 部署只发 dist/，本地构建 |
+| your-host 沙箱镜像缺 TS 工具链 | 低 | 部署只发 dist/，本地构建 |
 | 测试现在测 JS，重构后要测 dist | 中 | Phase 0.1 末尾就跑通最简单的测试，确认路径 |
 | 官方 commit 跟 npm 2026.4.23 内容不匹配 | 低 | 用 GitHub tag `v2026.4.23` 而非 main |
 

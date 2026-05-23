@@ -52,7 +52,7 @@ describe("before_tool_call sender injection", () => {
         },
       },
       {
-        agentId: "wecom-dm-lirui",
+        agentId: "wecom-dm-alice",
         toolName: "message",
       },
     );
@@ -62,7 +62,7 @@ describe("before_tool_call sender injection", () => {
         action: "send",
         channel: "wecom",
         target: "韦元栋",
-        message: "[[sender:lirui]]\n你好",
+        message: "[[sender:alice]]\n你好",
       },
     });
   });
