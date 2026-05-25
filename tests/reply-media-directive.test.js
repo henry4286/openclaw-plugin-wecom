@@ -100,7 +100,7 @@ describe("buildBodyForAgent", () => {
   it("prepends inline WeCom rules before the message body", () => {
     const result = buildBodyForAgent("hello world", {}, "test-agent");
     assert.ok(result.includes("[WeCom agent rules]"));
-    assert.ok(result.includes("[[sender:test-agent]]"));
+    assert.ok(result.includes("`message` tool is disabled"));
     assert.ok(result.includes("MEDIA:/..."));
     assert.ok(result.endsWith("hello world"));
   });
@@ -209,7 +209,7 @@ describe("buildReplyMediaGuidance", () => {
   it("contains expected guidance sections", () => {
     const guidance = buildReplyMediaGuidance({}, "test-agent");
     assert.ok(guidance.includes("[WeCom reply media rule]"));
-    assert.ok(guidance.includes("[WeCom cross-chat send rule]"));
+    assert.ok(guidance.includes("[WeCom message-tool rule]"));
     assert.ok(guidance.includes("MEDIA:/abs/path"));
     assert.ok(guidance.includes("FILE:/abs/path"));
     assert.ok(guidance.includes("Do NOT use the message tool"));
@@ -221,8 +221,9 @@ describe("buildReplyMediaGuidance", () => {
     assert.ok(guidance.includes("its own line"));
     assert.ok(guidance.includes("stage_browser_media"));
     assert.ok(guidance.includes("Do NOT echo raw browser host paths"));
-    assert.ok(guidance.includes("[[sender:test-agent]]"));
+    assert.ok(guidance.includes("`message` tool is disabled"));
     assert.ok(!guidance.includes("[WeCom image_studio rule]"));
+    assert.ok(!guidance.includes("[[sender:"));
   });
 
   it("includes configured host media roots in guidance", () => {
@@ -267,9 +268,11 @@ describe("buildReplyMediaGuidance", () => {
     assert.ok(guidance.includes("图片会单独发送，请查收。"));
   });
 
-  it("uses the dm peer id as the sender label in cross-chat guidance", () => {
+  it("declares the message tool disabled instead of injecting a sender header", () => {
     const guidance = buildReplyMediaGuidance({}, "wecom-dm-alice");
-    assert.ok(guidance.includes("[[sender:alice]]"));
+    assert.ok(guidance.includes("`message` tool is disabled"));
+    assert.ok(guidance.includes("Cross-chat outbound"));
+    assert.ok(!guidance.includes("[[sender:alice]]"));
     assert.ok(!guidance.includes("[[sender:wecom-dm-alice]]"));
   });
 });

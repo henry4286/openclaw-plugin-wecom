@@ -1,5 +1,37 @@
 # Changelog
 
+## 3.4.0 (2026-05-25)
+
+相对 [v3.3.0](https://github.com/sunnoy/openclaw-plugin-wecom/releases/tag/v3.3.0) 的变更摘要。
+
+### Fixes
+
+- **修复模型用 `message` 工具导致企微「不响应」**: 模型在 WS 入站 turn 内调用 OpenClaw `message` 工具（`action="send"`、无 target）时，OpenClaw 核心会自动把回复改走 `aibot_send_msg` 主动消息推送通道，绕过 ws-monitor 的 `state.accumulatedText` 累积，最终 `final_reply_sent.textLength` 为 0、企微思考卡留空、`activeDaily` 配额（默认 10/天）被快速消耗、用户体感"openclaw 不响应"。修复对齐官方 `@wecom/wecom-openclaw-plugin@2026.5.14` `webhook/helpers.js:buildCfgForDispatch` 的做法：dispatch 前临时把 `tools.deny` 和 `tools.sandbox.tools.deny` 都加上 `"message"`，强制模型只能用 inline visible text 回复。
+
+### Behavior Changes
+
+- **cross-chat outbound 临时下线**: 由于 `message` 工具在 WS 入站 dispatch 期间被 deny，模型通过 `message(action="send", channel="wecom", target=…)` 向其他用户/群发主动消息的能力暂时不可用。`outbound-sender-protocol.js` 中的 `[[sender:xxx]]` 头部协议代码保留，预计在后续版本里把 cross-chat 路由重做到 inline visible text 路径（检测 visible text 首行的 `[[sender:xxx]]` 头并通过 `agent-api.js#agentSendText` 投递）。如果你的业务依赖此特性，请暂缓升级。
+- `buildReplyMediaGuidance` / `buildBodyForAgent` 中引导模型用 `message` 工具做 cross-chat 的 system prompt 段落被删除，替换为「`message` tool is disabled on this channel; reply with visible text directly」的明示提示。
+
+### Internals
+
+- 新增 `wecom/cfg-for-dispatch.js`，导出 `buildCfgForDispatch(config)`，照搬官方实现的 deny 部分；暂不应用 `blockStreamingChunk` / `blockStreamingCoalesce` 阈值调整，避免与现有 throttle 冲突。
+- `wecom/ws-monitor.js` dispatch 注入点 `cfg: config` 改为 `cfg: buildCfgForDispatch(config)`。
+- 仅修改 WS 入站路径；`callback-inbound.js` webhook 路径暂不动（官方 v2026.5.14 已在 webhook 路径 deny；本仓库目前未观察到 webhook 路径的同类问题）。
+- peerDependency 保持 `^2026.3.23-2` 不变；与 OpenClaw 2026.5.20 / 2026.5.22 的 `dispatchReplyWithBufferedBlockDispatcher`、`runtimeProfileAlsoAllow` 语义、`plugin-sdk/{status-helpers,core,setup,media-runtime}` 子路径均逐项核对一致。
+
+### Tests
+
+- 新增 `tests/cfg-for-dispatch.test.js`：覆盖空 config、existing deny 合并、其他字段不变、不可变性 4 个用例。
+- 调整 `tests/reply-media-directive.test.js`：3 个原 cross-chat / `[[sender:]]` 头部断言改为断言新的 message-tool-disabled 文案。
+- 本地全量测试 `318 pass / 0 fail`。
+
+### Verification
+
+- 远端 `ali-ai` rsync + `openclaw gateway restart` 后 `openclaw plugins doctor` 无新增 issue。
+- 端到端 smoke：`wecom-dm-lirui` 让模型在 sandbox 里 `bash` 创建文件并复盘，`finalAssistantVisibleText` 非空、`winnerProvider=openai-codex`、`fallbackUsed=false`、trajectory 中 0 个 `tool.call name="message"`。
+- 生产观察约 4 小时：21 条 `final_reply_sent` 全部 `textLength > 0`，0 次 `Active send quota is exhausted` 警告（修复前为 28/28 条 `textLength=0` + 多次 quota 告警）。
+
 ## 3.3.0 (2026-05-23)
 
 相对 [v3.2.0](https://github.com/sunnoy/openclaw-plugin-wecom/releases/tag/v3.2.0) 的变更摘要。

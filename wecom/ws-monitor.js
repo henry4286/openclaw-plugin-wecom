@@ -8,6 +8,7 @@ import { uploadAndReplyMedia, buildMediaErrorSummary } from "./media-uploader.js
 import { createPersistentReqIdStore } from "./reqid-store.js";
 import { agentSendMedia, agentSendText, agentUploadMedia } from "./agent-api.js";
 import { applyOutboundSenderProtocol, resolveOutboundSenderLabel } from "./outbound-sender-protocol.js";
+import { buildCfgForDispatch } from "./cfg-for-dispatch.js";
 import { logger } from "../logger.js";
 import { normalizeThinkingTags } from "../think-parser.js";
 import { MessageDeduplicator } from "../utils.js";
@@ -421,7 +422,6 @@ function buildReplyMediaGuidance(config, agentId) {
   const browserMediaDir = path.join(resolveStateDir(), "media", "browser");
   const configuredRoots = resolveConfiguredReplyMediaLocalRoots(config);
   const qwenImageToolsConfig = config?.plugins?.entries?.wecom?.config?.qwenImageTools;
-  const senderLabel = resolveOutboundSenderLabel(agentId);
   const guidance = [
     WECOM_REPLY_MEDIA_GUIDANCE_HEADER,
     `Local reply files are allowed only under the current workspace: ${workspaceDir}`,
@@ -441,10 +441,9 @@ function buildReplyMediaGuidance(config, agentId) {
     "For public HTTPS images that should appear inline in the answer, keep them as markdown images like ![图片说明](https://example.com/image.png). Do NOT downgrade them to plain URLs.",
     "Each directive MUST be on its own line with no other text on that line.",
     "The plugin will automatically send the media to the user.",
-    "[WeCom cross-chat send rule]",
-    `If you proactively send a WeCom message to a different user/group via the OpenClaw message tool (action=\"send\", channel=\"wecom\"), prepend this exact hidden header on the first line of the message: [[sender:${senderLabel}]]`,
-    `Example cross-chat content: [[sender:${senderLabel}]]\\n你好`,
-    "Use the sender header only for proactive cross-chat sends. Do NOT add it when replying in the current WeCom chat.",
+    "[WeCom message-tool rule]",
+    "The OpenClaw `message` tool is disabled on this channel. Do NOT call `message` with action=\"send\" / \"sendAttachment\" — reply with visible text directly inside <final> tags.",
+    "Cross-chat outbound (sending to a different WeCom user/group) is temporarily unavailable. If asked, tell the user the cross-chat path is offline.",
   ];
 
   if (configuredRoots.length > 0) {
@@ -522,14 +521,11 @@ function buildBodyForAgent(body, config, agentId) {
     return "";
   }
 
-  const senderLabel = resolveOutboundSenderLabel(agentId);
   const inlineRules = [
     "[WeCom agent rules]",
-    "If proactively sending to a different WeCom user/group via the OpenClaw message tool (action=\"send\", channel=\"wecom\"), prepend this exact hidden header on the first line of the message:",
-    `[[sender:${senderLabel}]]`,
-    `Example: [[sender:${senderLabel}]]\\n你好`,
-    "Do NOT add that header when replying in the current WeCom chat.",
-    "To send files back to the current WeCom chat, do NOT use the message tool with action=\"send\" or action=\"sendAttachment\"; emit MEDIA:/... or FILE:/... directives on their own lines INSIDE <final> tags.",
+    "The OpenClaw `message` tool is disabled on this channel. Do NOT call `message` with action=\"send\" / \"sendAttachment\" — reply with visible text directly.",
+    "Cross-chat outbound (sending to a different WeCom user/group via the message tool) is temporarily unavailable.",
+    "To send files back to the current WeCom chat, emit MEDIA:/... or FILE:/... directives on their own lines INSIDE <final> tags.",
   ].join("\n");
 
   return `${inlineRules}\n\n${body}`;
@@ -2333,7 +2329,7 @@ async function processWsMessage({
         async () => {
           await core.reply.dispatchReplyWithBufferedBlockDispatcher({
             ctx: ctxPayload,
-            cfg: config,
+            cfg: buildCfgForDispatch(config),
             replyOptions: {
               disableBlockStreaming: false,
               onReasoningStream: async (payload) => {
